@@ -15,3 +15,9 @@
 *.out
 /helloagents/
 /.cache/
+/User/xrobot_main.hpp
+/Modules/CMakeLists.txt
+/Modules/*/
+
+# The project YAML of libxr parse
+.config.yaml

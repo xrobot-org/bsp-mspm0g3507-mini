@@ -13,6 +13,28 @@ permissions:
   contents: read
 
 jobs:
+  # Configuration check: formatting of the XRobot YAML files and a locked module resolution.
+  check:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/xrobot-org/docker-image-mspm0:main
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install XRobot
+        run: |
+          git config --global --add safe.directory '*'
+          pip install "xrobot==$(sed -n 's/^xrobot: *//p' Modules/modules.yaml)"
+
+      - name: Check the configuration format
+        run: xrobot format --check
+
+      - name: Resolve the modules from xrobot.lock
+        run: xrobot setup --frozen
+
   build:
     if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
@@ -23,16 +45,22 @@ jobs:
       matrix:
         preset: [debug, release]
     steps:
-      # The MSPM0 SDK submodule is about 2.2 GB; scripts/fetch-mspm0-sdk.sh fetches only
-      # the pinned commit's files that the build needs.
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Fetch LibXR and the MSPM0 SDK
+      # The image provides the MSPM0 SDK and SysConfig (MSPM0_SDK_INSTALL_DIR,
+      # SYSCONFIG_TOOL).
+      - name: Show SysConfig and the submodules
         run: |
+          "$SYSCONFIG_TOOL" --version
           git config --global --add safe.directory '*'
-          git submodule update --init libxr
-          sh scripts/fetch-mspm0-sdk.sh
           git submodule status
+
+      - name: Resolve the XRobot modules
+        run: |
+          pip install "xrobot==$(sed -n 's/^xrobot: *//p' Modules/modules.yaml)"
+          xrobot setup --frozen
 
       - name: Configure
         run: cmake --preset ${{ matrix.preset }}
@@ -41,7 +69,7 @@ jobs:
         run: cmake --build --preset ${{ matrix.preset }}
 
       - name: Firmware size
-        run: arm-none-eabi-size build/${{ matrix.preset }}/ti_mspm0_libxr_dev.elf
+        run: arm-none-eabi-size build/${{ matrix.preset }}/mspm0_minidb48.elf
 
   # Compatibility canary: builds against the head of the LibXR master branch.
   # A failure here is reported but does not fail the workflow.
@@ -53,15 +81,20 @@ jobs:
       image: ghcr.io/xrobot-org/docker-image-mspm0:main
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-      - name: Fetch the MSPM0 SDK and update LibXR to master
+      - name: Update LibXR to master
         run: |
           git config --global --add safe.directory '*'
-          git submodule update --init libxr
-          sh scripts/fetch-mspm0-sdk.sh
           git -C libxr fetch --depth 1 origin master
           git -C libxr checkout --detach FETCH_HEAD
           git -C libxr log -1 --format='LibXR master: %H %s'
+
+      - name: Resolve the XRobot modules
+        run: |
+          pip install "xrobot==$(sed -n 's/^xrobot: *//p' Modules/modules.yaml)"
+          xrobot setup --frozen
 
       - name: Configure
         run: cmake --preset release
@@ -70,4 +103,4 @@ jobs:
         run: cmake --build --preset release
 
       - name: Firmware size
-        run: arm-none-eabi-size build/release/ti_mspm0_libxr_dev.elf
+        run: arm-none-eabi-size build/release/mspm0_minidb48.elf
